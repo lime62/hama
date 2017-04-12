@@ -77,7 +77,10 @@ public class SuperstepPiEstimator {
       double data = 4.0 * in / iterations;
       DoubleWritable estimate = new DoubleWritable(data);
 
-      peer.send(masterTask, estimate);
+//      peer.send(masterTask, estimate);
+      for (String peerName : peer.getAllPeerNames()) {
+        peer.send(peerName, estimate);
+      }
     }
   }
 
@@ -89,15 +92,18 @@ public class SuperstepPiEstimator {
     protected void compute(
         BSPPeer<NullWritable, NullWritable, Text, DoubleWritable, DoubleWritable> peer)
         throws IOException {
-      if (peer.getPeerName().equals(masterTask)) {
+      //if (peer.getPeerName().equals(masterTask)) {
+      if (true) {
         double pi = 0.0;
         int numPeers = peer.getNumCurrentMessages();
+        System.out.println(numPeers);
         DoubleWritable received;
         while ((received = peer.getCurrentMessage()) != null) {
           pi += received.get();
         }
-
+        System.out.println(pi);
         pi = pi / numPeers;
+
         peer.write(new Text("Estimated value of PI is"), new DoubleWritable(pi));
       }
     }
@@ -135,7 +141,7 @@ public class SuperstepPiEstimator {
     bsp.setJobName("Fault Tolerant Pi Estimation Example");
 
     // set our supersteps, they must be given in execution order
-    bsp.setSupersteps(SuperstepPiEstimator.PiEstimatorCalculator.class,
+    bsp.setDataflowSupersteps(SuperstepPiEstimator.PiEstimatorCalculator.class,
         SuperstepPiEstimator.PiEstimatorAggregator.class);
 
     bsp.setInputFormat(NullInputFormat.class);

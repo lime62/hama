@@ -1,3 +1,20 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.hama.bsp;
 
 import org.apache.commons.logging.Log;
@@ -5,86 +22,59 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hama.bsp.sync.SyncException;
-import org.apache.hama.util.ReflectionUtils;
 
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectInputStream;
+import java.util.List;
 
-public class DataflowBSP extends BSP<WritableComparable<?>, Writable, WritableComparable<?>, Writable, KVWritable> {
+public class DataflowBSP<K1 extends WritableComparable<?>, V1 extends Writable,
+    K2 extends WritableComparable<?>, V2 extends Writable, M extends Writable> extends BSP<K1, V1, K2, V2, M> {
 
   private static final Log LOG = LogFactory.getLog(DataflowBSP.class);
-  private Superstep<WritableComparable<?>, Writable, WritableComparable<?>, Writable, KVWritable>[] supersteps;
-  private int startSuperstep;
-
-  private WritableComparable<?> keyIn;
-  private Writable valueIn;
-  private WritableComparable<?> keyOut;
-  private Writable valueOut;
-
-  public static final String KEY_IN_CLASS_NAME = "hama.dataflow.key.input.class";
-  public static final String VALUE_IN_CLASS_NAME = "hama.dataflow.value.input.class";
-  public static final String KEY_OUT_CLASS_NAME = "hama.dataflow.key.output.class";
-  public static final String VALUE_OUT_CLASS_NAME = "hama.dataflow.value.output.class";
+  private DataflowSuperstep<K1, V1, K2, V2, M>[] supersteps;
+  private int startingSuperstep;
 
   @SuppressWarnings("unchecked")
   @Override
-  public void setup(BSPPeer<WritableComparable<?>, Writable, WritableComparable<?>, Writable, KVWritable> peer) throws IOException,
+  public void setup(BSPPeer<K1, V1, K2, V2, M> peer) throws IOException,
       SyncException, InterruptedException {
+
     try {
-      keyIn = ReflectionUtils.newInstance(peer.getConfiguration().get(KEY_IN_CLASS_NAME));
-      valueIn = ReflectionUtils.newInstance(peer.getConfiguration().get(VALUE_IN_CLASS_NAME));
-      keyOut = ReflectionUtils.newInstance(peer.getConfiguration().get(KEY_OUT_CLASS_NAME));
-      valueOut = ReflectionUtils.newInstance(peer.getConfiguration().get(VALUE_OUT_CLASS_NAME));
-    } catch (ClassNotFoundException e) {
-      LOG.error(e);
+      // deserialize superstep objects
+      String tempPath = peer.getConfiguration().get("hama.dataflow.tempPath");
+      FileInputStream fis = new FileInputStream(tempPath);
+      ObjectInput oi = new ObjectInputStream(fis);
+      List<DataflowSuperstep> superstepList = (List<DataflowSuperstep>)oi.readObject();
+      oi.close();
+      fis.close();
+
+      // initiate supersteps
+      supersteps = new DataflowSuperstep[superstepList.size()];
+      for (int i = 0; i < superstepList.size(); i++) {
+        DataflowSuperstep dss = superstepList.get(i);
+        dss.setup(peer);
+        supersteps[i] = dss;
+      }
+    } catch(ClassNotFoundException e) {
+      LOG.error("Could not instantiate a DataflowSuperstep objects.", e);
       throw new IOException(e);
     }
-
-    // instantiate our superstep classes
-    /*
-    String classList = peer.getConfiguration().get("hama.dataflow.supersteps.class");
-    String[] classNames = classList.split(",");
-
-    LOG.debug("Size of classes = " + classNames.length);
-
-    supersteps = new Superstep[classNames.length];
-    Superstep<WritableComparable<?>, Writable, WritableComparable<?>, Writable, KVWritable> newInstance;
-    for (int i = 0; i < classNames.length; i++) {
-      try {
-        newInstance = ReflectionUtils.newInstance(classNames[i]);
-      } catch (ClassNotFoundException e) {
-        LOG.error((new StringBuffer("Could not instantiate a Superstep class")
-            .append(classNames[i])).toString(), e);
-        throw new IOException(e);
-      }
-      newInstance.setup(peer);
-      supersteps[i] = newInstance;
-    }
-    startSuperstep = peer.getConfiguration().getInt("attempt.superstep", 0);
-    */
+    startingSuperstep = peer.getConfiguration().getInt("attempt.superstep", 0);
   }
 
   @Override
-  public void bsp(BSPPeer<WritableComparable<?>, Writable, WritableComparable<?>, Writable, KVWritable> peer) throws IOException, SyncException, InterruptedException {
-    for (int index = startSuperstep; index < supersteps.length; index++) {
-      Superstep<WritableComparable<?>, Writable, WritableComparable<?>, Writable, KVWritable> superstep = supersteps[index];
-
-      if (index == 0) {
-        while (peer.readNext(keyIn, valueIn)) {
-          // todo : add kvpair to superstep
-        }
-      } else {
-        KVWritable msg;
-        while ((msg = peer.getCurrentMessage()) != null) {
-          // todo : add kvpair to superstep
-        }
-      }
-
+  public void bsp(BSPPeer<K1, V1, K2, V2, M> peer) throws IOException, SyncException, InterruptedException {
+    for (int i = startingSuperstep; i < supersteps.length; i++) {
+      DataflowSuperstep<K1, V1, K2, V2, M> superstep = supersteps[i];
       superstep.compute(peer);
       if (superstep.haltComputation(peer)) {
+        LOG.info("Superstep computation is halt.");
         break;
       }
       peer.sync();
-      startSuperstep = 0;
+      startingSuperstep = 0;
     }
   }
 }

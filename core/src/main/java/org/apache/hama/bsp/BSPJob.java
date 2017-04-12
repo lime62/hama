@@ -17,10 +17,13 @@
  */
 package org.apache.hama.bsp;
 
-import java.io.IOException;
+import java.io.*;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.List;
+import java.util.UUID;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
@@ -111,7 +114,7 @@ public class BSPJob extends BSPJobContext {
   }
 
   @SuppressWarnings("rawtypes")
-  public void setSupersteps(Class<? extends Superstep>... classes) {
+  public void setDataflowSupersteps(Class<? extends Superstep>... classes) {
     ensureState(JobState.DEFINE);
 
     String clazzString = "";
@@ -120,6 +123,24 @@ public class BSPJob extends BSPJobContext {
 
     conf.set("hama.supersteps.class", clazzString);
     this.setBspClass(SuperstepBSP.class);
+  }
+
+  public void setDataflowSupersteps(List<DataflowSuperstep> supersteps) {
+    ensureState(JobState.DEFINE);
+    try {
+      Path tempPath = new Path("/tmp/" + UUID.randomUUID().toString());
+      conf.set("hama.dataflow.tempPath", tempPath.toString());
+      OutputStream f = new FileOutputStream(tempPath.toString());
+      ObjectOutput s = new ObjectOutputStream(f);
+      s.writeObject(supersteps);
+      s.close();
+      f.close();
+    } catch (FileNotFoundException e) {
+      e.printStackTrace();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    this.setBspClass(DataflowBSP.class);
   }
 
   @SuppressWarnings({ "unchecked", "rawtypes" })

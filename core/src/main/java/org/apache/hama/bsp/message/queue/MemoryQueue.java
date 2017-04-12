@@ -83,7 +83,15 @@ public final class MemoryQueue<M extends Writable> implements
 
   @Override
   public final int size() {
-    return numOfMsg + deque.size();
+
+
+    int size = 0;
+    for (final BSPMessageBundle<M> bundle : bundles) {
+      size += bundle.size();
+    }
+    System.out.println("bundle size: " + bundles.size() + " numOfMsg: " + size + " deque size: " + deque.size());
+    return size + deque.size();
+    //return numOfMsg + deque.size();
   }
 
   @Override
